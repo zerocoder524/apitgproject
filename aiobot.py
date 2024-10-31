@@ -1,73 +1,124 @@
-import logging
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram import Router
 import asyncio
+from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command
+from aiogram.types import Message, FSInputFile
+from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.context import FSMContext
+from aiogram.filters.state import State, StatesGroup
+from googletrans import Translator  # Не забудьте установить googletrans
 import aiohttp
 
-from config import TOKENW, WEATHER_API_KEY  # Убедитесь, что у вас есть файл config.py с токенами
+# Убедитесь, что вы правильно импортируете токен
+from config import TOKENT
 
-API_TOKEN = TOKENW
-
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
-
-bot = Bot(token=API_TOKEN)
+bot = Bot(token=TOKENT)
 storage = MemoryStorage()
-router = Router()
-
-# Инициализация диспетчера с передачей бота
-dp = Dispatcher(storage=storage)  # Передаем хранилище при создании диспетчера
-
-# Настройка хранилища (не нужно, так как мы уже передали его в диспетчер)
+dp = Dispatcher(storage=storage)
 
 
-# Обработчик команды /start, /help
-@router.message(Command('start', 'help'))
-async def send_welcome(message: types.Message):
-    await message.reply("Привет! Отправь команду /weather <город>, чтобы получить прогноз погоды.")
+# Определение состояний
+class TranslateState(StatesGroup):
+    text = State()
 
 
-@router.message(Command('weather'))
-async def weather(message: types.Message):
-    args = message.get_args()
-    if not args:
-        await message.reply("Пожалуйста, укажите город.")
-        return
-
-    city = args.strip()
-    print(city)
-    weather_data = await get_weather(city)  # Асинхронный вызов
-
-    if weather_data:
-        await message.reply(weather_data)
-    else:
-        await message.reply("Не удалось получить данные о погоде. Проверьте название города.")
+@dp.message(Command('send_voice'))
+async def send_voice(message: Message):
+    await message.answer("Введите текст, который хотите превратить в голосовое сообщение:")
+    await TranslateState.text.set()  # Установить состояние
 
 
-async def get_weather(city: str) -> str:
-    async with aiohttp.ClientSession() as session:  # Создаем асинхронную сессию
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
-        async with session.get(url) as response:  # Асинхронный запрос
+@dp.message(TranslateState.text)
+async def translate_to_voice(message: Message, state: FSMContext):
+    text = message.text.strip()
+    translator = Translator()
+    translation = translator.translate(text, dest='en').text
+    await state.finish()
+
+    async with aiohttp.ClientSession() as session:
+        url = 'https://texttospeech.googleapis.com/v1/text:synthesize'
+        headers = {
+            'Authorization': 'Bearer ' + os.getenv('API_KEY'),  # Используйте переменную среды для API_KEY
+            'Content-Type': 'application/json'
+        }
+        data = {
+            'input': {
+                'text': translation
+            },
+            'voice': {
+                'languageCode': 'en-US',
+                'name': 'en-US-Standard-A'
+            },
+            'audioConfig': {
+                'audioEncoding': 'MP3'
+            }
+        }
+        async with session.post(url, headers=headers, json=data) as response:
             if response.status == 200:
-                data = await response.json()
-                city_name = data['name']
-                temperature = data['main']['temp']
-                weather_description = data['weather'][0]['description']
-                return f"Погода в городе {city_name}:\\nТемпература: {temperature}°C\\nОписание: {weather_description.capitalize()}"
+                audio_content = await response.json()
+                audio_data = audio_content['audioContent']
+                await message.answer_voice(audio_data)
             else:
-                return None
+                await message.answer("Произошла ошибка при преобразовании текста в речь.")
 
 
-async def main():  # Оборачиваем запуск бота в асинхронную функцию
-    dp.include_router(router)
-    # Запускаем бота, ждем результата и обрабатываем исключения
-    try:
-        await dp.start_polling(bot)  # Передаем бота в start_polling
-    finally:
-        await bot.session.close()
+@dp.message(Command('translate_text'))
+async def translate_text(message: Message):
+    await message.answer("Введите текст, который хотите перевести на английский язык:")
+    await TranslateState.text.set()  # Установить состояние для перевода текста
 
 
-if __name__ == '__main__':
+@dp.message(TranslateState.text)
+async def process_translation(message: Message, state: FSMContext):
+    text = message.text.strip()
+    translator = Translator()
+    translation = translator.translate(text, dest='en').text
+    await state.finish()  # Завершить состояние
+    await message.answer(translation)  # Отправить перевод пользователю
+
+
+@dp.message(F.photo)
+async def handle_photo(message: Message):
+    file_id = message.photo[-1].file_id
+    file = await bot.get_file(file_id)
+    file_path = file.file_path
+    await bot.download_file(file_path, f'img/{file.file_unique_id}.jpg')
+    await message.answer("Фото сохранено!")
+
+
+@dp.message(Command('video'))
+async def video(message: Message):
+    await bot.send_chat_action(message.chat.id, 'upload_video')
+    video = FSInputFile("video.mp4")
+    await bot.send_video(message.chat.id, video)
+
+
+@dp.message(Command('audio'))
+async def audio(message: Message):
+    audio = FSInputFile("path_to_audio.mp3")  # Убедитесь, что вы указали путь к аудиофайлу
+    await bot.send_audio(message.chat.id, audio)
+
+
+@dp.message(Command('help'))
+async def help(message: Message):
+    await message.answer("Этот бот умеет выполнять команды:\n/start\n/help\n/send_voice\n/handle_photo\n/video\n/audio")
+
+
+@dp.message(Command('start'))
+async def start(message: Message):
+    await message.answer(f'Привет, {message.from_user.first_name}!')
+
+
+# @dp.message()
+# async def echo_message(message: Message):
+#     if message.text.lower() == "тест":
+#         await message.answer("тестируем")
+#     else:
+#         await message.send_copy(chat_id=message.chat.id)
+#
+#
+async def main():
+    await dp.start_polling(bot)
+
+
+if __name__ == '__main__':  # Исправлено на правильное имя
     asyncio.run(main())

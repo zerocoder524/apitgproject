@@ -1,6 +1,6 @@
 import asyncio
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import Command
 from aiogram.types import Message, FSInputFile
 from config import TOKEN2
 from gtts import gTTS
@@ -9,6 +9,21 @@ import random
 
 bot = Bot(token=TOKEN2)
 dp = Dispatcher()
+
+
+@dp.message(Command('send_voice'))
+async def send_voice(message:Message):
+    await message.answer("Введите текст, который хотите превратить в голосовое сообщение:")
+    await TranslateState.text.set()
+
+
+@dp.message(Command('handle_photo'))
+async def handle_photo(message:Message):
+    file_id = message.photo[-1].file_id
+    file = await bot.get_file(file_id)
+    file_path = file.file_path
+    await bot.download_file(file_path, f'img/{file.file_unique_id}.jpg')
+    await message.answer("Фото сохранено!")
 
 
 @dp.message(Command('video'))
