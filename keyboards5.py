@@ -14,11 +14,11 @@ inline_keyboard_test = InlineKeyboardMarkup(inline_keyboard=[
 
 # Кнопка "Показать больше"
 show_more_button = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="Показать больше", callback_data='show_more')]
+    [InlineKeyboardButton(text="Питомцы", callback_data='show_more')]
 ])
 
 # Инлайн-кнопки для динамических опций
 dynamic_options = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text="Опция 1", callback_data='option1')],
-    [InlineKeyboardButton(text="Опция 2", callback_data='option2')]
+    [InlineKeyboardButton(text="Кошки", callback_data='option1')],
+    [InlineKeyboardButton(text="Собаки", callback_data='option2')]
 ])
